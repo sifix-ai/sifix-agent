@@ -62,9 +62,9 @@ export class StorageClient {
 
   /**
    * Store transaction analysis on 0G Storage
-   * Returns root hash for later retrieval
+   * Returns root hash and explorer URL for verification
    */
-  async storeAnalysis(analysis: TransactionAnalysisData): Promise<string> {
+  async storeAnalysis(analysis: TransactionAnalysisData): Promise<{ rootHash: string; explorerUrl?: string }> {
     // MOCK MODE: Generate deterministic hash without actual upload
     // Used when 0G Storage network is unstable or for development
     if (this.mockMode) {
@@ -73,7 +73,7 @@ export class StorageClient {
       console.log(`[Storage] MOCK MODE: Generated deterministic hash ${hash}`);
       console.log(`[Storage] Note: No actual upload to 0G Storage (mockMode enabled)`);
       console.log(`[Storage] In production, this would be stored on-chain with proof`);
-      return hash;
+      return { rootHash: hash };
     }
 
     // Production mode requires wallet
@@ -120,7 +120,9 @@ export class StorageClient {
         
         if (!uploadErr) {
           console.log(`[Storage] Upload complete. Tx: ${tx}`);
-          return rootHash;
+          const txHash = 'txHash' in tx ? tx.txHash : tx.txHashes[0];
+          const explorerUrl = `https://chainscan-newton.0g.ai/tx/${txHash}`;
+          return { rootHash, explorerUrl };
         }
         
         lastError = uploadErr;

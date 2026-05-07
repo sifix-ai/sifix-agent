@@ -26,6 +26,7 @@ export interface AnalysisResult {
   analysis: any;
   timestamp: string;
   storageRootHash?: string; // 0G Storage root hash for explorer link
+  storageExplorer?: string; // 0G Storage explorer URL
 }
 
 export class SecurityAgent {
@@ -97,7 +98,7 @@ export class SecurityAgent {
     // Step 4: Store analysis on 0G Storage (if configured)
     if (this.storage) {
       try {
-        const rootHash = await this.storage.storeAnalysis({
+        const storageResult = await this.storage.storeAnalysis({
           from: params.from,
           to: params.to,
           value: params.value?.toString(),
@@ -112,8 +113,9 @@ export class SecurityAgent {
           simulationSuccess: simulation.success,
           gasUsed: simulation.gasUsed.toString(),
         });
-        console.log(`[Agent] Analysis stored on 0G Storage: ${rootHash}`);
-        result.storageRootHash = rootHash;
+        console.log(`[Agent] Analysis stored on 0G Storage: ${storageResult.rootHash}`);
+        result.storageRootHash = storageResult.rootHash;
+        result.storageExplorer = storageResult.explorerUrl;
       } catch (error) {
         console.error(`[Agent] Failed to store analysis:`, error);
         // Don't fail the analysis if storage fails
