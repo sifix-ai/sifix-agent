@@ -65,16 +65,17 @@ export class StorageClient {
    * Returns root hash for later retrieval
    */
   async storeAnalysis(analysis: TransactionAnalysisData): Promise<string> {
-    if (!this.wallet) {
-      throw new Error('Private key required for storage operations');
-    }
-
     // MOCK MODE: Generate deterministic hash without actual upload
     if (this.mockMode) {
       const jsonData = JSON.stringify(analysis, null, 2);
       const hash = ethers.keccak256(ethers.toUtf8Bytes(jsonData));
       console.log(`[Storage] MOCK: Generated hash ${hash} (no actual upload)`);
       return hash;
+    }
+
+    // Production mode requires wallet
+    if (!this.wallet) {
+      throw new Error('Private key required for storage operations');
     }
 
     // Convert analysis to JSON buffer
