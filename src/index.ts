@@ -143,3 +143,5 @@ export class SecurityAgent {
 }
 
 export type { AIConfig } from './ai/analyzer';
+export { StorageClient } from './storage/client.js';
+export type { StorageConfig, TransactionAnalysisData } from './storage/client.js';
