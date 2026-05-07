@@ -66,10 +66,13 @@ export class StorageClient {
    */
   async storeAnalysis(analysis: TransactionAnalysisData): Promise<string> {
     // MOCK MODE: Generate deterministic hash without actual upload
+    // Used when 0G Storage network is unstable or for development
     if (this.mockMode) {
       const jsonData = JSON.stringify(analysis, null, 2);
       const hash = ethers.keccak256(ethers.toUtf8Bytes(jsonData));
-      console.log(`[Storage] MOCK: Generated hash ${hash} (no actual upload)`);
+      console.log(`[Storage] MOCK MODE: Generated deterministic hash ${hash}`);
+      console.log(`[Storage] Note: No actual upload to 0G Storage (mockMode enabled)`);
+      console.log(`[Storage] In production, this would be stored on-chain with proof`);
       return hash;
     }
 
