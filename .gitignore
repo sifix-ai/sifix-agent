@@ -5,3 +5,15 @@ dist/
 *.log
 .DS_Store
 test-custom-provider.ts
+
+# Extra docs
+0G_STORAGE_STATUS.md
+0G_UPLOAD_ISSUE.md
+CHANGELOG_v1.3.1.md
+MOCK_MODE.md
+SUMMARY.md
+
+# Example scripts
+examples/mock-mode.ts
+examples/production-mode.ts
+test-custom-provider.ts
