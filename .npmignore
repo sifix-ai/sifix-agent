@@ -1,0 +1,8 @@
+src/
+test-custom-provider.ts
+node_modules/
+.env
+.env.local
+tsconfig.json
+*.log
+.DS_Store
