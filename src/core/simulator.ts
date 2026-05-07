@@ -88,7 +88,7 @@ export class TransactionSimulator {
     const changes: SimulationResult['balanceChanges'] = [];
 
     // Native token transfer
-    if (params.value && params.value > 0n) {
+    if (params.value && params.value > BigInt(0)) {
       changes.push({
         token: '0x0000000000000000000000000000000000000000' as Address,
         from: params.from,
