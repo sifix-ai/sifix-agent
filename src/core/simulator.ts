@@ -1,31 +1,5 @@
 import { createPublicClient, createTestClient, http, type Address, type Hash } from 'viem';
-import { defineChain } from 'viem';
-
-// 0G Newton Testnet
-const zgChain = defineChain({
-  id: 16602,
-  name: '0G Newton Testnet',
-  network: '0g-newton-testnet',
-  nativeCurrency: {
-    decimals: 18,
-    name: 'A0GI',
-    symbol: 'A0GI'
-  },
-  rpcUrls: {
-    default: {
-      http: ['https://evmrpc-testnet.0g.ai']
-    },
-    public: {
-      http: ['https://evmrpc-testnet.0g.ai']
-    }
-  },
-  blockExplorers: {
-    default: {
-      name: '0G Explorer',
-      url: 'https://chainscan-newton.0g.ai'
-    }
-  }
-});
+import { zeroGTestnet } from 'viem/chains';
 
 export interface SimulationResult {
   success: boolean;
@@ -49,12 +23,12 @@ export class TransactionSimulator {
 
   constructor(rpcUrl: string = 'https://evmrpc-testnet.0g.ai') {
     this.publicClient = createPublicClient({
-      chain: zgChain,
+      chain: zeroGTestnet,
       transport: http(rpcUrl),
     });
 
     this.testClient = createTestClient({
-      chain: zgChain,
+      chain: zeroGTestnet,
       mode: 'anvil',
       transport: http(rpcUrl),
     });
