@@ -13,6 +13,7 @@ export interface AgentConfig {
   storage?: {
     indexerUrl: string;
     privateKey?: string;
+    mockMode?: boolean; // Enable mock storage for development/testing
   };
   // Legacy support (deprecated)
   openaiApiKey?: string;
@@ -51,7 +52,8 @@ export class SecurityAgent {
       this.storage = new StorageClient({
         rpcUrl: config.rpcUrl,
         indexerUrl: config.storage.indexerUrl,
-        privateKey: config.storage.privateKey
+        privateKey: config.storage.privateKey,
+        mockMode: config.storage.mockMode
       });
     }
   }

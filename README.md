@@ -111,6 +111,49 @@ src/
 - **WARN** (40-69): Moderate risks, review recommended
 - **BLOCK** (70-100): Significant/severe threats, block recommended
 
+## 0G Storage Integration
+
+SIFIX stores transaction analysis results on 0G Storage for transparency and auditability. Each analysis gets a unique root hash that can be verified on the 0G Storage explorer.
+
+### Mock Mode (Development/Testing)
+
+When 0G testnet is unstable or unavailable, enable mock mode to continue development:
+
+```typescript
+const agent = new SecurityAgent({
+  rpcUrl: 'https://evmrpc-testnet.0g.ai',
+  aiProvider: {
+    apiKey: process.env.OPENAI_API_KEY,
+  },
+  storage: {
+    indexerUrl: 'https://indexer-storage-testnet-standard.0g.ai',
+    privateKey: process.env.ZEROG_PRIVATE_KEY,
+    mockMode: true  // ⚠️ Generates deterministic hashes without actual uploads
+  }
+});
+```
+
+**Mock mode behavior:**
+- ✅ Generates deterministic keccak256 hash from analysis data
+- ✅ UI and flow work exactly the same
+- ✅ No network calls to 0G Storage
+- ⚠️ Hash is NOT verifiable on 0G explorer (for demo/testing only)
+
+**Production mode** (`mockMode: false` or omitted):
+- ✅ Real upload to 0G Storage network
+- ✅ Root hash verifiable on explorer
+- ✅ Permanent decentralized storage
+- ⚠️ Requires testnet to be operational
+
+### Environment Variables
+
+```bash
+# .env
+ZEROG_INDEXER_URL=https://indexer-storage-testnet-standard.0g.ai
+ZEROG_PRIVATE_KEY=0x...
+ZEROG_MOCK_MODE=false  # Set to 'true' for mock mode
+```
+
 ## Configuration
 
 ### AgentConfig
@@ -123,8 +166,13 @@ interface AgentConfig {
     baseURL?: string;                // Custom API endpoint (optional)
     model?: string;                  // Model name (optional)
   };
+  storage?: {
+    indexerUrl: string;              // 0G Storage indexer URL
+    privateKey?: string;             // Private key for storage operations
+    mockMode?: boolean;              // Enable mock mode (default: false)
+  };
   openaiApiKey?: string;             // Legacy (deprecated)
-  zeroGStorageUrl?: string;          // 0G Storage endpoint (future)
+  zeroGStorageUrl?: string;          // Legacy (deprecated)
 }
 ```
 

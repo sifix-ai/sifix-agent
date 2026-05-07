@@ -34,14 +34,29 @@ export class StorageClient {
   private provider: ethers.JsonRpcProvider;
   private wallet?: ethers.Wallet;
   private config: StorageConfig;
+  private mockMode: boolean;
 
-  constructor(config: StorageConfig) {
+  constructor(config: StorageConfig & { mockMode?: boolean }) {
     this.config = config;
-    this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
+    this.mockMode = config.mockMode || false;
+    
+    // Use working RPC endpoint
+    const workingRpcUrl = config.rpcUrl.includes('evmrpc-testnet-turbo') 
+      ? 'https://evmrpc-testnet.0g.ai' 
+      : config.rpcUrl;
+    
+    this.provider = new ethers.JsonRpcProvider(workingRpcUrl);
     this.indexer = new Indexer(config.indexerUrl);
     
     if (config.privateKey) {
       this.wallet = new ethers.Wallet(config.privateKey, this.provider);
+    }
+
+    if (this.mockMode) {
+      console.log('[Storage] Running in MOCK mode - no actual uploads to 0G Storage');
+    } else {
+      console.log(`[Storage] Using RPC: ${workingRpcUrl}`);
+      console.log(`[Storage] Using Indexer: ${config.indexerUrl}`);
     }
   }
 
@@ -52,6 +67,14 @@ export class StorageClient {
   async storeAnalysis(analysis: TransactionAnalysisData): Promise<string> {
     if (!this.wallet) {
       throw new Error('Private key required for storage operations');
+    }
+
+    // MOCK MODE: Generate deterministic hash without actual upload
+    if (this.mockMode) {
+      const jsonData = JSON.stringify(analysis, null, 2);
+      const hash = ethers.keccak256(ethers.toUtf8Bytes(jsonData));
+      console.log(`[Storage] MOCK: Generated hash ${hash} (no actual upload)`);
+      return hash;
     }
 
     // Convert analysis to JSON buffer
@@ -74,19 +97,39 @@ export class StorageClient {
       const rootHash = tree!.rootHash();
       console.log(`[Storage] Generated root hash: ${rootHash}`);
 
-      // Upload to 0G Storage
-      const [tx, uploadErr] = await this.indexer.upload(
-        file,
-        this.config.rpcUrl,
-        this.wallet
-      );
+      // Upload to 0G Storage with retry logic
+      const workingRpcUrl = this.config.rpcUrl.includes('evmrpc-testnet-turbo') 
+        ? 'https://evmrpc-testnet.0g.ai' 
+        : this.config.rpcUrl;
       
-      if (uploadErr) {
-        throw new Error(`Upload failed: ${uploadErr.message}`);
+      let lastError: Error | null = null;
+      const maxRetries = 3;
+      
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        console.log(`[Storage] Upload attempt ${attempt}/${maxRetries}...`);
+        
+        const [tx, uploadErr] = await this.indexer.upload(
+          file,
+          workingRpcUrl,
+          this.wallet
+        );
+        
+        if (!uploadErr) {
+          console.log(`[Storage] Upload complete. Tx: ${tx}`);
+          return rootHash;
+        }
+        
+        lastError = uploadErr;
+        console.warn(`[Storage] Attempt ${attempt} failed: ${uploadErr.message}`);
+        
+        if (attempt < maxRetries) {
+          const delay = attempt * 2000; // 2s, 4s backoff
+          console.log(`[Storage] Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
       }
-
-      console.log(`[Storage] Upload complete. Tx: ${tx}`);
-      return rootHash;
+      
+      throw new Error(`Upload failed after ${maxRetries} attempts: ${lastError?.message}`);
     } finally {
       await file.close();
       // Clean up temp file
