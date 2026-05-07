@@ -4,8 +4,21 @@ import type { Address, Hash } from 'viem';
 
 export interface AgentConfig {
   rpcUrl: string;
-  openaiApiKey: string;
-  zeroGStorageUrl: string;
+  aiProvider?: {
+    apiKey: string;
+    baseURL?: string;
+    model?: string;
+  };
+  // Legacy support (deprecated)
+  openaiApiKey?: string;
+  zeroGStorageUrl?: string;
+}
+
+export interface AnalysisResult {
+  simulation: any;
+  threatIntel: any;
+  analysis: any;
+  timestamp: string;
 }
 
 export class SecurityAgent {
@@ -16,7 +29,15 @@ export class SecurityAgent {
   constructor(config: AgentConfig) {
     this.config = config;
     this.simulator = new TransactionSimulator(config.rpcUrl);
-    this.analyzer = new AIAnalyzer(config.openaiApiKey);
+    
+    // Support both new aiProvider config and legacy openaiApiKey
+    const aiConfig = config.aiProvider || {
+      apiKey: config.openaiApiKey || '',
+      baseURL: undefined,
+      model: 'gpt-4-turbo-preview'
+    };
+    
+    this.analyzer = new AIAnalyzer(aiConfig);
   }
 
   /**
@@ -64,3 +85,5 @@ export class SecurityAgent {
     return null;
   }
 }
+
+export type { AIConfig } from './ai/analyzer';

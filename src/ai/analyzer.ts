@@ -21,11 +21,22 @@ export interface RiskAnalysis {
   recommendation: 'BLOCK' | 'WARN' | 'ALLOW';
 }
 
+export interface AIConfig {
+  apiKey: string;
+  baseURL?: string;
+  model?: string;
+}
+
 export class AIAnalyzer {
   private openai: OpenAI;
+  private model: string;
 
-  constructor(apiKey: string) {
-    this.openai = new OpenAI({ apiKey });
+  constructor(config: AIConfig) {
+    this.openai = new OpenAI({ 
+      apiKey: config.apiKey,
+      baseURL: config.baseURL
+    });
+    this.model = config.model || 'gpt-4-turbo-preview';
   }
 
   /**
@@ -40,7 +51,7 @@ export class AIAnalyzer {
     const prompt = this.buildPrompt(params);
 
     const completion = await this.openai.chat.completions.create({
-      model: 'gpt-4-turbo-preview',
+      model: this.model,
       messages: [
         {
           role: 'system',
