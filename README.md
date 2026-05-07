@@ -9,6 +9,7 @@ AI-powered transaction security analyzer for Web3 wallets.
 - **Flexible AI Provider**: Support for OpenAI, Groq, Anthropic, OpenRouter, Ollama, and any OpenAI-compatible API
 - **5-Tier Risk Scoring**: SAFE, LOW, MEDIUM, HIGH, CRITICAL
 - **On-Chain Reporting**: Reports HIGH/CRITICAL threats to SifixReputation contract
+- **0G Storage Integration**: Store analysis results on 0G decentralized storage (with mock mode fallback)
 
 ## Installation
 
