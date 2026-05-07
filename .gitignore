@@ -4,7 +4,14 @@ dist/
 .env.local
 *.log
 .DS_Store
-test-custom-provider.ts
+
+# Test scripts
+test-*
+check-*
+*.test.*
+*.spec.*
+*.mjs
+!eslint.config.mjs
 
 # Extra docs
 0G_STORAGE_STATUS.md
