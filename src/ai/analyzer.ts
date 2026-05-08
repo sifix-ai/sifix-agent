@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { ComputeClient } from '../compute/client.js';
 import type { SimulationResult } from '../core/simulator';
 import type { Address } from 'viem';
 
@@ -19,6 +20,7 @@ export interface RiskAnalysis {
   reasoning: string;
   threats: string[];
   recommendation: 'BLOCK' | 'WARN' | 'ALLOW';
+  provider: 'openai' | '0g-compute'; // Which AI provider was used
 }
 
 export interface AIConfig {
@@ -27,16 +29,35 @@ export interface AIConfig {
   model?: string;
 }
 
+/**
+ * AI Risk Analyzer with support for both OpenAI-compatible providers
+ * and 0G Compute decentralized inference
+ */
 export class AIAnalyzer {
-  private openai: OpenAI;
+  private openai: OpenAI | null = null;
+  private computeClient: ComputeClient | null = null;
   private model: string;
+  private provider: 'openai' | '0g-compute';
 
-  constructor(config: AIConfig) {
-    this.openai = new OpenAI({ 
-      apiKey: config.apiKey,
-      baseURL: config.baseURL
-    });
-    this.model = config.model || 'gpt-4-turbo-preview';
+  constructor(config: AIConfig, computeClient?: ComputeClient) {
+    if (computeClient) {
+      // Use 0G Compute for inference
+      this.computeClient = computeClient;
+      this.model = computeClient.getModel() || '0g-compute';
+      this.openai = null;
+      this.provider = '0g-compute';
+      console.log('[AI] Using 0G Compute for inference');
+    } else {
+      // Use OpenAI-compatible provider (OpenAI, Groq, OpenRouter, Ollama, etc.)
+      this.openai = new OpenAI({
+        apiKey: config.apiKey,
+        baseURL: config.baseURL,
+      });
+      this.model = config.model || 'gpt-4-turbo-preview';
+      this.computeClient = null;
+      this.provider = 'openai';
+      console.log(`[AI] Using OpenAI-compatible provider (${this.model})`);
+    }
   }
 
   /**
@@ -50,7 +71,59 @@ export class AIAnalyzer {
   }): Promise<RiskAnalysis> {
     const prompt = this.buildPrompt(params);
 
-    const completion = await this.openai.chat.completions.create({
+    let content: string;
+
+    if (this.computeClient) {
+      // Route through 0G Compute
+      content = await this.analyzeViaCompute(prompt);
+    } else if (this.openai) {
+      // Route through OpenAI-compatible API
+      content = await this.analyzeViaOpenAI(prompt);
+    } else {
+      throw new Error('No AI provider configured');
+    }
+
+    const result = JSON.parse(content || '{}');
+
+    return {
+      riskScore: result.riskScore || 0,
+      confidence: result.confidence || 0,
+      reasoning: result.reasoning || 'No analysis available',
+      threats: result.threats || [],
+      recommendation: this.getRecommendation(result.riskScore),
+      provider: this.provider,
+    };
+  }
+
+  /**
+   * Analyze via 0G Compute (decentralized inference)
+   */
+  private async analyzeViaCompute(prompt: string): Promise<string> {
+    const response = await this.computeClient!.chatCompletion({
+      messages: [
+        {
+          role: 'system',
+          content: `You are a blockchain security expert analyzing transaction risks. 
+Provide risk scores (0-100), confidence levels (0-1), and clear reasoning.
+Focus on: phishing, rug pulls, malicious contracts, unusual patterns.`,
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.3,
+    });
+
+    return response.content;
+  }
+
+  /**
+   * Analyze via OpenAI-compatible API
+   */
+  private async analyzeViaOpenAI(prompt: string): Promise<string> {
+    const completion = await this.openai!.chat.completions.create({
       model: this.model,
       messages: [
         {
@@ -67,15 +140,7 @@ Focus on: phishing, rug pulls, malicious contracts, unusual patterns.`,
       response_format: { type: 'json_object' },
     });
 
-    const result = JSON.parse(completion.choices[0].message.content || '{}');
-
-    return {
-      riskScore: result.riskScore || 0,
-      confidence: result.confidence || 0,
-      reasoning: result.reasoning || 'No analysis available',
-      threats: result.threats || [],
-      recommendation: this.getRecommendation(result.riskScore),
-    };
+    return completion.choices[0].message.content || '{}';
   }
 
   /**
