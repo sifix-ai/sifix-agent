@@ -121,7 +121,7 @@ export class StorageClient {
         if (!uploadErr) {
           console.log(`[Storage] Upload complete. Tx: ${tx}`);
           const txHash = 'txHash' in tx ? tx.txHash : tx.txHashes[0];
-          const explorerUrl = `https://chainscan-newton.0g.ai/tx/${txHash}`;
+          const explorerUrl = `https://chainscan-galileo.0g.ai/tx/${txHash}`;
           return { rootHash, explorerUrl };
         }
         
