@@ -2,6 +2,7 @@ import { TransactionSimulator } from './core/simulator.js';
 import { AIAnalyzer } from './ai/analyzer.js';
 import { StorageClient } from './storage/client.js';
 import { ComputeClient } from './compute/client.js';
+import type { ThreatIntelProvider } from './threat-intel/provider.js';
 import type { Address, Hash } from 'viem';
 
 export interface AgentConfig {
@@ -22,6 +23,12 @@ export interface AgentConfig {
     privateKey?: string;
     mockMode?: boolean;
   };
+  /**
+   * Threat intelligence provider — inject your own implementation
+   * (e.g. PrismaThreatIntel in dApp) to enable learning from past scans.
+   * Without this, each scan is analyzed in isolation (no history).
+   */
+  threatIntel?: ThreatIntelProvider;
   // Legacy support (deprecated)
   openaiApiKey?: string;
   zeroGStorageUrl?: string;
@@ -42,10 +49,12 @@ export class SecurityAgent {
   private analyzer: AIAnalyzer;
   private storage?: StorageClient;
   private computeClient?: ComputeClient;
+  private threatIntelProvider?: ThreatIntelProvider;
   private config: AgentConfig;
 
   constructor(config: AgentConfig) {
     this.config = config;
+    this.threatIntelProvider = config.threatIntel;
     this.simulator = new TransactionSimulator(config.rpcUrl);
     
     // Initialize 0G Compute client if configured
@@ -117,9 +126,13 @@ export class SecurityAgent {
     const simulation = await this.simulator.simulate(params);
     console.log(`[Agent] Simulation complete: ${simulation.success ? 'SUCCESS' : 'FAILED'}`);
 
-    // Step 2: Fetch threat intelligence from 0G Storage
+    // Step 2: Fetch threat intelligence (from provider or 0G Storage)
     const threatIntel = await this.fetchThreatIntel(params.to);
-    console.log(`[Agent] Threat intel: ${threatIntel ? `${threatIntel.riskScore}/100` : 'none'}`);
+    if (threatIntel) {
+      console.log(`[Agent] Threat intel: ${threatIntel.totalScans} past scans, avg risk ${threatIntel.avgRiskScore}/100`);
+    } else {
+      console.log(`[Agent] Threat intel: none (new address)`);
+    }
 
     // Step 3: AI analysis (via 0G Compute or OpenAI-compatible provider)
     const analysis = await this.analyzer.analyze({
@@ -165,6 +178,9 @@ export class SecurityAgent {
       }
     }
 
+    // Step 5: Save scan result to threat intel provider (DB index)
+    await this.saveScanHistory(result, params.from, params.to);
+
     return result;
   }
 
@@ -180,12 +196,49 @@ export class SecurityAgent {
   }
 
   /**
-   * Fetch threat intelligence from 0G Storage
+   * Fetch threat intelligence from ThreatIntelProvider + 0G Storage
    */
   private async fetchThreatIntel(address: Address) {
-    // TODO: Implement 0G Storage query
-    // For now, return mock data
-    return null;
+    if (!this.threatIntelProvider) {
+      return null;
+    }
+
+    try {
+      const intel = await this.threatIntelProvider.getAddressIntel(address);
+      if (intel) {
+        console.log(`[Agent] Threat intel found: ${intel.totalScans} past scans, avg risk ${intel.avgRiskScore}/100`);
+      }
+      return intel;
+    } catch (error) {
+      console.warn(`[Agent] Failed to fetch threat intel for ${address}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Save scan result to ThreatIntelProvider for future lookups
+   */
+  private async saveScanHistory(result: AnalysisResult, from: Address, to: Address) {
+    if (!this.threatIntelProvider) return;
+
+    try {
+      await this.threatIntelProvider.saveScanResult({
+        from,
+        to,
+        riskScore: result.analysis.riskScore,
+        riskLevel: this.getRiskLevel(result.analysis.riskScore),
+        recommendation: result.analysis.recommendation,
+        reasoning: result.analysis.reasoning,
+        threats: result.analysis.threats,
+        confidence: result.analysis.confidence,
+        timestamp: result.timestamp,
+        rootHash: result.storageRootHash,
+        storageExplorer: result.storageExplorer,
+      });
+      console.log(`[Agent] Scan result saved to threat intel provider`);
+    } catch (error) {
+      console.warn(`[Agent] Failed to save scan result:`, error);
+    }
   }
 }
 
@@ -194,3 +247,4 @@ export { StorageClient } from './storage/client.js';
 export type { StorageConfig, TransactionAnalysisData } from './storage/client.js';
 export { ComputeClient } from './compute/client.js';
 export type { ComputeConfig, ChatCompletionResponse } from './compute/client.js';
+export type { ThreatIntelProvider, AddressThreatIntel, ScanSummary } from './threat-intel/provider.js';

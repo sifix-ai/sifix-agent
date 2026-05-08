@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { ComputeClient } from '../compute/client.js';
 import type { SimulationResult } from '../core/simulator';
+import type { AddressThreatIntel } from '../threat-intel/provider.js';
 import type { Address } from 'viem';
 
 export interface ThreatIntelligence {
@@ -67,7 +68,7 @@ export class AIAnalyzer {
     from: Address;
     to: Address;
     simulation: SimulationResult;
-    threatIntel: ThreatIntelligence | null;
+    threatIntel: AddressThreatIntel | ThreatIntelligence | null;
   }): Promise<RiskAnalysis> {
     const prompt = this.buildPrompt(params);
 
@@ -150,7 +151,7 @@ Focus on: phishing, rug pulls, malicious contracts, unusual patterns.`,
     from: Address;
     to: Address;
     simulation: SimulationResult;
-    threatIntel: ThreatIntelligence | null;
+    threatIntel: AddressThreatIntel | ThreatIntelligence | null;
   }): string {
     const { from, to, simulation, threatIntel } = params;
 
@@ -170,13 +171,37 @@ ${simulation.balanceChanges.map((c: any) => `  • ${c.from} → ${c.to}: ${c.am
 `;
 
     if (threatIntel) {
-      prompt += `**Threat Intelligence (from 0G Storage):**
-- Risk Score: ${threatIntel.riskScore}/100
-- Reports: ${threatIntel.reports.length} total
-${threatIntel.reports.map(r => `  • ${r.type}: ${r.count} reports (last: ${r.lastSeen.toISOString()})`).join('\n')}
-- Tags: ${threatIntel.tags.join(', ')}
+      // Check if it's AddressThreatIntel (from provider) or legacy ThreatIntelligence
+      if ('totalScans' in threatIntel) {
+        // AddressThreatIntel — rich historical data
+        const intel = threatIntel as AddressThreatIntel;
+        prompt += `**Threat Intelligence (from ${intel.totalScans} past scans via 0G Storage):**
+- Address: ${intel.address}
+- Average Risk Score: ${intel.avgRiskScore}/100
+- Highest Risk Score: ${intel.maxRiskScore}/100
+- Known Threats: ${intel.knownThreats.length > 0 ? intel.knownThreats.join(', ') : 'None'}
+- Last Recommendation: ${intel.lastRecommendation || 'N/A'}
+- Risk Distribution: SAFE=${intel.riskDistribution.safe}, LOW=${intel.riskDistribution.low}, MEDIUM=${intel.riskDistribution.medium}, HIGH=${intel.riskDistribution.high}, CRITICAL=${intel.riskDistribution.critical}
+- First Seen: ${intel.firstSeen || 'Unknown'}
+- Last Seen: ${intel.lastSeen || 'Unknown'}
+
+**Recent Scan History:**
+${intel.recentScans.slice(0, 5).map(s => `  • ${s.timestamp}: Risk ${s.riskScore}/100 (${s.riskLevel}) — ${s.recommendation} — Threats: ${s.threats.join(', ') || 'None'}`).join('\n')}
+
+⚠️ IMPORTANT: This address has historical scan data. Factor in the past risk patterns when making your assessment. If past scans show consistent HIGH/CRITICAL scores, the address is likely malicious.
 
 `;
+      } else {
+        // Legacy ThreatIntelligence format
+        const intel = threatIntel as ThreatIntelligence;
+        prompt += `**Threat Intelligence (from 0G Storage):**
+- Risk Score: ${intel.riskScore}/100
+- Reports: ${intel.reports.length} total
+${intel.reports.map(r => `  • ${r.type}: ${r.count} reports (last: ${r.lastSeen.toISOString()})`).join('\n')}
+- Tags: ${intel.tags.join(', ')}
+
+`;
+      }
     } else {
       prompt += `**Threat Intelligence:** No historical data found (new address)\n\n`;
     }
