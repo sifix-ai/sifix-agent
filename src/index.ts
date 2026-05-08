@@ -29,6 +29,16 @@ export interface AgentConfig {
    * Without this, each scan is analyzed in isolation (no history).
    */
   threatIntel?: ThreatIntelProvider;
+  /**
+   * Optional on-chain agent identity metadata (Agentic ID / ERC-7857)
+   * embedded into stored scan evidence for provenance.
+   */
+  agentIdentity?: {
+    tokenId?: string;
+    contractAddress?: string;
+    network?: string;
+    model?: string;
+  };
   // Legacy support (deprecated)
   openaiApiKey?: string;
   zeroGStorageUrl?: string;
