@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.5.0] - 2026-05-08
+
+### Added
+- **ThreatIntelProvider interface**: DB-agnostic threat intelligence abstraction
+  - `AddressThreatIntel` type: known threats, risk distribution, scan stats per address
+  - `ScanSummary` type: aggregate stats (total scans, avg risk, threat counts)
+  - Provider methods: `getHistory(address)` and `saveResult(data)`
+- **Agentic ID provenance**: Optional `agentIdentity` config for on-chain agent identity (ERC-7857)
+  - Embeds tokenId, contract address, network, and model into scan evidence
+  - Enables verifiable agent-to-result provenance on 0G Storage
+
+### Changed
+- `SecurityAgent` now accepts `threatIntel` provider in config for historical context
+- AI analyzer prompt enriched with threat intel data (past scan stats, known risks)
+- `fetchThreatIntel()` called before analysis, `saveScanHistory()` called after storage
+
+### Technical
+- New exports: `ThreatIntelProvider`, `AddressThreatIntel`, `ScanSummary`
+- Zero breaking changes — all new features are opt-in via config
+
+## [1.4.0] - 2026-05-08
+
+### Added
+- **0G Compute integration**: AI inference via 0G Compute network (default provider)
+  - Native SDK: `@0gfoundation/0g-compute-ts-sdk`
+  - Model: `0g-llama-3.3-70b` as default
+  - OpenAI-compatible API fallback for custom providers
+
+### Changed
+- Refactored AI provider to support multiple backends (0G Compute, OpenAI, Groq, custom)
+- `aiProvider` config replaces hardcoded OpenAI-only approach
+
 ## [1.3.0] - 2026-05-07
 
 ### Fixed
