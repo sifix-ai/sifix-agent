@@ -332,6 +332,33 @@ const agent = new SecurityAgent({
 
 ## 🏗️ Architecture
 
+```mermaid
+graph TB
+    SA[SecurityAgent<br/>Orchestrator]
+
+    SA --> SIM[TransactionSimulator<br/>viem on 0G Galileo]
+    SA --> TI[ThreatIntelProvider<br/>Pluggable Interface]
+    SA --> AI[AIAnalyzer<br/>Risk Scoring Engine]
+    SA --> STO[StorageClient<br/>0G Storage Upload]
+
+    AI --> CC[ComputeClient<br/>0G Compute Network]
+    AI --> OAI[OpenAI SDK<br/>Fallback Provider]
+
+    CC --> ZGC[0G Galileo Testnet]
+    STO --> ZGS[0G Storage Indexer]
+    SIM --> ZGC
+
+    style SA fill:#3b9eff,color:#fff
+    style AI fill:#3b9eff,color:#fff
+    style CC fill:#22c55e,color:#fff
+    style STO fill:#22c55e,color:#fff
+    style SIM fill:#f59e0b,color:#000
+    style TI fill:#a855f7,color:#fff
+```
+
+<details>
+<summary>📐 ASCII Version</summary>
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        SIFIX Agent SDK                          │
@@ -377,6 +404,7 @@ External Dependencies:
   • 0G Storage Indexer (Merkle tree upload/download)
   • OpenAI-Compatible APIs (optional fallback)
 ```
+</details>
 
 ### Source Structure
 
@@ -399,6 +427,34 @@ src/
 ---
 
 ## 🔄 Analysis Flow
+
+```mermaid
+flowchart TD
+    START([User initiates transaction]) --> AT[analyzeTransaction<br/>{from, to, data?, value?}]
+
+    AT --> SIM[Simulate Transaction<br/>viem + 0G Galileo]
+    SIM --> SR[SimulationResult<br/>success, gasUsed, balanceChanges,<br/>events, revertReason?]
+
+    SR --> FTI[Fetch Threat Intel<br/>ThreatIntelProvider.getAddressIntel]
+    FTI --> TI[AddressThreatIntel or null<br/>totalScans, avgRiskScore,<br/>knownThreats, riskDistribution]
+
+    TI --> AI[AI Analysis<br/>AIAnalyzer.analyze]
+    AI --> RA[RiskAnalysis<br/>riskScore, confidence, reasoning,<br/>threats, recommendation, provider]
+
+    RA --> STORE[Store on 0G Storage<br/>StorageClient.storeAnalysis]
+    STORE --> HASH[{rootHash, explorerUrl}<br/>Merkle root on-chain]
+
+    HASH --> SAVE[Save to Database<br/>ThreatIntelProvider.saveScanResult]
+    SAVE --> RESULT([AnalysisResult<br/>simulation + threatIntel + analysis<br/>+ storageRootHash + computeProvider])
+
+    style START fill:#22c55e,color:#fff
+    style RESULT fill:#3b9eff,color:#fff
+    style AI fill:#a855f7,color:#fff
+    style STORE fill:#f59e0b,color:#000
+```
+
+<details>
+<summary>📐 ASCII Version</summary>
 
 ```
 User initiates transaction
@@ -449,6 +505,7 @@ User initiates transaction
   ├── storageExplorer
   └── computeProvider ('0g-compute' | 'openai')
 ```
+</details>
 
 ---
 
