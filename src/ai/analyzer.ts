@@ -24,6 +24,21 @@ export interface RiskAnalysis {
   provider: 'openai' | '0g-compute'; // Which AI provider was used
 }
 
+/**
+ * Context for message signature analysis
+ * Used for personalSign / eth_signTypedData analysis
+ */
+export interface MessageContext {
+  method: 'personalSign' | 'eth_signTypedData';
+  message: string;
+  typedData?: {
+    types: Record<string, Array<{ name: string; type: string }>>;
+    primaryType: string;
+    domain: Record<string, any>;
+    message: Record<string, any>;
+  };
+}
+
 export interface AIConfig {
   apiKey: string;
   baseURL?: string;
@@ -63,14 +78,21 @@ export class AIAnalyzer {
 
   /**
    * Analyze transaction risk using AI + threat intelligence
+   *
+   * @param params - Transaction details including from/to addresses, simulation result, and threat intel
+   * @param params.messageContext - Optional message signature context for personalSign/eth_signTypedData analysis
+   * @returns RiskAnalysis with riskScore, confidence, reasoning, threats, and recommendation
    */
   async analyze(params: {
     from: Address;
     to: Address;
     simulation: SimulationResult;
     threatIntel: AddressThreatIntel | ThreatIntelligence | null;
+    messageContext?: MessageContext;
   }): Promise<RiskAnalysis> {
-    const prompt = this.buildPrompt(params);
+    const prompt = params.messageContext
+      ? this.buildMessagePrompt(params.from, params.threatIntel, params.messageContext)
+      : this.buildPrompt(params);
 
     let content: string;
 
@@ -142,6 +164,91 @@ Focus on: phishing, rug pulls, malicious contracts, unusual patterns.`,
     });
 
     return completion.choices[0].message.content || '{}';
+  }
+
+  /**
+   * Build analysis prompt for message signature (personalSign / eth_signTypedData)
+   */
+  private buildMessagePrompt(
+    from: Address,
+    threatIntel: AddressThreatIntel | ThreatIntelligence | null,
+    messageContext: MessageContext
+  ): string {
+    let prompt = `Analyze this blockchain message signature request for security risks:\n\n**Message Signature Request:**\n`;
+    
+    // Message details
+    prompt += `- From (signer): ${from}\n`;
+    prompt += `- Method: ${messageContext.method}\n`;
+    
+    // Warn if message is large or obfuscated
+    const messageLength = messageContext.message.length;
+    let sizeWarning = '';
+    if (messageLength > 1000) {
+      sizeWarning = ' ⚠️ Large message (>1KB) — may be obfuscated';
+    }
+    
+    if (messageContext.method === 'personalSign') {
+      prompt += `- Raw Message: ${messageContext.message.substring(0, 500)}${messageContext.message.length > 500 ? '...' : ''}${sizeWarning}\n`;
+      prompt += `- Message Length: ${messageLength} characters\n`;
+    } else if (messageContext.method === 'eth_signTypedData' && messageContext.typedData) {
+      const typedData = messageContext.typedData;
+      prompt += `- Primary Type: ${typedData.primaryType}\n`;
+      prompt += `- Domain Chain ID: ${typedData.domain.chainId || 'unknown'}\n`;
+      prompt += `- Domain Contract: ${typedData.domain.verifyingContract || 'N/A'}\n`;
+      prompt += `- Types Defined: ${Object.keys(typedData.types).join(', ')}\n`;
+      prompt += `- Message Data (JSON):\n`;
+      prompt += JSON.stringify(typedData.message, null, 2).split('\\n').map(line => `  ${line}`).join('\\n');
+      prompt += `\n`;
+      
+      // Warn if signing for known phishing contract
+      const verifyingContract = typedData.domain.verifyingContract?.toLowerCase();
+      if (verifyingContract) {
+        // Check against known phishing contracts (this is a basic check)
+        const knownPhishingPatterns = ['deployer', 'factory', 'wrapper', 'bridge'];
+        if (knownPhishingPatterns.some(p => verifyingContract.includes(p))) {
+          prompt += `⚠️ WARNING: Message references a contract with suspicious patterns (factory/bridge/wrapper/deployer)\n`;
+        }
+      }
+    }
+    
+    // Threat intel
+    if (threatIntel) {
+      if ('totalScans' in threatIntel) {
+        const intel = threatIntel as AddressThreatIntel;
+        prompt += `\n**Threat Intelligence (from ${intel.totalScans} past scans):**\n`;
+        prompt += `- Address: ${intel.address}\n`;
+        prompt += `- Average Risk Score: ${intel.avgRiskScore}/100\n`;
+        prompt += `- Highest Risk Score: ${intel.maxRiskScore}/100\n`;
+        prompt += `- Known Threats: ${intel.knownThreats.length > 0 ? intel.knownThreats.join(', ') : 'None'}\n`;
+        if (intel.avgRiskScore >= 60) {
+          prompt += `⚠️ WARNING: This signer has a history of HIGH/CRITICAL risk patterns!\n`;
+        }
+      } else {
+        const intel = threatIntel as ThreatIntelligence;
+        prompt += `\n**Threat Intelligence:**\n`;
+        prompt += `- Risk Score: ${intel.riskScore}/100\n`;
+        prompt += `- Tags: ${intel.tags.join(', ')}\n`;
+      }
+    } else {
+      prompt += `\n**Threat Intelligence:** No historical data found (new signer)\n`;
+    }
+    
+    prompt += `\n**Analysis Instructions:**
+- Check if the message content appears legitimate or suspicious
+- Look for phishing indicators (fake contract addresses, impersonation, etc.)
+- Consider if the signer has a history of malicious activity
+- Warn if message is obfuscated, encrypted, or cannot be decoded
+- Factor in threat intelligence (past risk patterns, known threats)
+
+Respond in JSON format:
+{
+  "riskScore": <0-100>,
+  "confidence": <0-1>,
+  "reasoning": "<human-readable explanation>",
+  "threats": ["<threat1>", "<threat2>"]
+}`;
+
+    return prompt;
   }
 
   /**

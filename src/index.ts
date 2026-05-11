@@ -1,5 +1,6 @@
 import { TransactionSimulator } from './core/simulator.js';
 import { AIAnalyzer } from './ai/analyzer.js';
+import type { MessageContext, RiskAnalysis } from './ai/analyzer.js';
 import { StorageClient } from './storage/client.js';
 import { ComputeClient } from './compute/client.js';
 import type { ThreatIntelProvider } from './threat-intel/provider.js';
@@ -195,6 +196,84 @@ export class SecurityAgent {
   }
 
   /**
+   * Analyze message signature request (personalSign / eth_signTypedData)
+   * 
+   * Usage:
+   * ```ts
+   * const result = await agent.analyzeMessageSignature({
+   *   from: '0x...',
+   *   method: 'eth_signTypedData',
+   *   message: '...',
+   *   typedData: { ... }
+   * });
+   * 
+   * console.log(`Risk: ${result.analysis.riskScore}/100`);
+   * console.log(`Recommendation: ${result.analysis.recommendation}`);
+   * console.log(`Threats: ${result.analysis.threats.join(', ')}`);
+   * ```
+   */
+  async analyzeMessageSignature(params: {
+    from: Address;
+    method: 'personalSign' | 'eth_signTypedData';
+    message: string;
+    typedData?: MessageContext['typedData'];
+  }): Promise<RiskAnalysis> {
+    console.log(`[Agent] Analyzing message signature: ${params.method} from ${params.from}`);
+
+    // Ensure compute is initialized
+    await this.init();
+
+    // Fetch threat intelligence for the signer
+    const threatIntel = await this.fetchThreatIntel(params.from);
+    if (threatIntel) {
+      console.log(`[Agent] Threat intel: ${threatIntel.totalScans} past scans, avg risk ${threatIntel.avgRiskScore}/100`);
+    } else {
+      console.log(`[Agent] Threat intel: none (new signer)`);
+    }
+
+    // AI analysis via messageContext
+    const analysis = await this.analyzer.analyze({
+      from: params.from,
+      to: params.from, // For messages, 'to' is same as 'from'
+      simulation: {
+        success: true,
+        gasUsed: BigInt(0),
+        balanceChanges: [],
+        events: [],
+      },
+      threatIntel,
+      messageContext: {
+        method: params.method,
+        message: params.message,
+        typedData: params.typedData,
+      },
+    });
+    console.log(`[Agent] Risk score: ${analysis.riskScore}/100 (${analysis.recommendation}) via ${analysis.provider}`);
+
+    // Save scan result to threat intel provider (DB index)
+    if (this.threatIntelProvider) {
+      try {
+        await this.threatIntelProvider.saveScanResult({
+          from: params.from,
+          to: params.from,
+          riskScore: analysis.riskScore,
+          riskLevel: this.getRiskLevel(analysis.riskScore),
+          recommendation: analysis.recommendation,
+          reasoning: analysis.reasoning,
+          threats: analysis.threats,
+          confidence: analysis.confidence,
+          timestamp: new Date().toISOString(),
+        });
+        console.log(`[Agent] Message signature scan result saved to threat intel provider`);
+      } catch (error) {
+        console.warn(`[Agent] Failed to save scan result:`, error);
+      }
+    }
+
+    return analysis;
+  }
+
+  /**
    * Get risk level from risk score
    */
   private getRiskLevel(riskScore: number): string {
@@ -252,7 +331,7 @@ export class SecurityAgent {
   }
 }
 
-export type { AIConfig } from './ai/analyzer';
+export type { AIConfig, MessageContext, RiskAnalysis } from './ai/analyzer';
 export { StorageClient } from './storage/client.js';
 export type { StorageConfig, TransactionAnalysisData } from './storage/client.js';
 export { ComputeClient } from './compute/client.js';
