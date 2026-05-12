@@ -18,6 +18,12 @@ SIFIX Agent is an open-source SDK that provides **real-time AI transaction secur
 
 Built on the **full 0G Stack**: [0G Compute](https://zero.network/) for decentralized AI inference and [0G Storage](https://zero.network/) for tamper-proof evidence storage.
 
+## Latest Progress (May 2026)
+
+- Standardized on **0G Galileo Testnet (Chain ID 16602)** across SIFIX stack.
+- Tightened integration contract assumptions for ScamReporter flow used by dApp relay/reconcile pipeline.
+- Maintains compatibility with dApp safe-report policy (`PENDING` first, community/admin validation next).
+
 ## ✨ Features
 
 - 🔍 **Transaction Simulation** — Simulate transactions on 0G Galileo Testnet using viem before execution
