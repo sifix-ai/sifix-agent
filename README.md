@@ -20,9 +20,11 @@ Built on the **full 0G Stack**: [0G Compute](https://zero.network/) for decentra
 
 ## Latest Progress (May 2026)
 
+- Added **real transaction simulation hardening** with better gas/state diff coverage and transfer parsing.
+- Added **rule-engine merge pipeline** so deterministic rules can raise final risk beyond AI-only output.
+- Added **signature-guard hardening** for `permit` / typed-data flows, including 4byte lookup cache and contract registry checks.
 - Standardized on **0G Galileo Testnet (Chain ID 16602)** across SIFIX stack.
-- Tightened integration contract assumptions for ScamReporter flow used by dApp relay/reconcile pipeline.
-- Maintains compatibility with dApp safe-report policy (`PENDING` first, community/admin validation next).
+- Maintains compatibility with dApp safe-report policy and prediction-accuracy tracking pipeline.
 
 ## ✨ Features
 
