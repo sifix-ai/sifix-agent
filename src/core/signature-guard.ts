@@ -18,40 +18,40 @@ export interface SignatureCheck {
 export class SignatureGuard {
   private maxMessageBytes: number;
   private blockedDomains: Set<string>;
+  private blockedContracts: Set<string>;
+  private trustedContracts: Set<string>;
+  private selectorCache: Map<string, string[]>;
 
-  constructor(opts?: { maxMessageBytes?: number; blockedDomains?: string[] }) {
+  constructor(opts?: { maxMessageBytes?: number; blockedDomains?: string[]; blockedContracts?: string[]; trustedContracts?: string[] }) {
     this.maxMessageBytes = opts?.maxMessageBytes ?? 4096;
-    this.blockedDomains = new Set(
-      (opts?.blockedDomains ?? []).map(d => d.toLowerCase()),
-    );
+    this.blockedDomains = new Set((opts?.blockedDomains ?? []).map(d => d.toLowerCase()));
+    this.blockedContracts = new Set((opts?.blockedContracts ?? []).map(c => c.toLowerCase()));
+    this.trustedContracts = new Set((opts?.trustedContracts ?? []).map(c => c.toLowerCase()));
+    this.selectorCache = new Map();
   }
 
-  check(params: {
+  async check(params: {
     from: Address;
     method: 'personalSign' | 'eth_signTypedData';
     message: string;
     typedData?: MessageContext['typedData'];
-  }): SignatureGuardResult {
+  }): Promise<SignatureGuardResult> {
     const checks: SignatureCheck[] = [];
     let score = 0;
     let blocked = false;
 
-    // 1. Validate signer address format
     checks.push(this.validateAddress(params.from));
-
-    // 2. Validate message size
     checks.push(this.validateMessageSize(params.message));
 
-    // 3. Method-specific checks
     if (params.method === 'personalSign') {
       checks.push(this.checkPersonalSignPayload(params.message));
+      checks.push(...await this.check4ByteFromMessage(params.message));
     }
 
     if (params.method === 'eth_signTypedData' && params.typedData) {
-      checks.push(...this.checkTypedData(params.typedData));
+      checks.push(...await this.checkTypedData(params.typedData));
     }
 
-    // 4. Aggregate
     for (const check of checks) {
       if (!check.passed) {
         switch (check.severity) {
@@ -63,6 +63,38 @@ export class SignatureGuard {
     }
 
     return { safe: score === 0, score: Math.min(score, 100), checks, blocked };
+  }
+
+  private async check4ByteFromMessage(message: string): Promise<SignatureCheck[]> {
+    const m = message.trim();
+    if (!/^0x[0-9a-fA-F]{10,}$/.test(m)) return [];
+    const selector = m.slice(0, 10).toLowerCase();
+    const signatures = await this.lookup4Byte(selector);
+    if (signatures.length === 0) {
+      return [{ name: 'selector-unknown', passed: false, severity: 'warn', message: `Unknown selector ${selector} (4byte miss)` }];
+    }
+    const dangerous = signatures.find(s => /permit\(|approve\(|setApprovalForAll\(|increaseAllowance\(|multicall\(/i.test(s));
+    if (dangerous) {
+      return [{ name: 'selector-dangerous', passed: false, severity: 'critical', message: `Dangerous selector ${selector}: ${dangerous}` }];
+    }
+    return [{ name: 'selector-known', passed: true, severity: 'info', message: `Selector ${selector}: ${signatures[0]}` }];
+  }
+
+  private async lookup4Byte(selector: string): Promise<string[]> {
+    if (this.selectorCache.has(selector)) return this.selectorCache.get(selector)!;
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      const res = await fetch(`https://www.4byte.directory/api/v1/signatures/?hex_signature=${selector}`, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (!res.ok) return [];
+      const json = await res.json() as any;
+      const out = Array.isArray(json?.results) ? json.results.map((r: any) => String(r.text_signature)).slice(0, 5) : [];
+      this.selectorCache.set(selector, out);
+      return out;
+    } catch {
+      return [];
+    }
   }
 
   private validateAddress(address: Address): SignatureCheck {
@@ -96,28 +128,52 @@ export class SignatureGuard {
     return { name: 'personal-sign-payload', passed: true, severity: 'info', message: 'Payload looks readable' };
   }
 
-  private checkTypedData(td: MessageContext['typedData']): SignatureCheck[] {
+  private async checkTypedData(td: MessageContext['typedData']): Promise<SignatureCheck[]> {
     const checks: SignatureCheck[] = [];
     if (!td) return checks;
 
     const dangerousTypes = ['Permit', 'PermitSingle', 'PermitBatch', 'PermitTransferFrom', 'SignatureTransfer', 'AllowanceTransfer', 'Claim'];
-    if (dangerousTypes.some(t => t.toLowerCase() === td.primaryType.toLowerCase())) {
+    const primaryType = String(td.primaryType || '');
+    const lowerPrimaryType = primaryType.toLowerCase();
+    if (dangerousTypes.some(t => t.toLowerCase() === lowerPrimaryType)) {
       checks.push({ name: 'typed-data-primary-type', passed: false, severity: 'critical', message: `Dangerous EIP-712 type "${td.primaryType}" — likely granting token approval` });
     }
 
-    if (td.message && typeof td.message === 'object') {
-      const MAX_UINT = '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
-      for (const val of Object.values(td.message)) {
-        if (String(val).toLowerCase() === MAX_UINT) {
-          checks.push({ name: 'typed-data-unlimited-approval', passed: false, severity: 'critical', message: 'MAX_UINT256 — unlimited token approval' });
-          break;
-        }
+    const values = this.flattenValues(td.message);
+    const maxUintMatch = values.find(val => this.isUnlimitedValue(val));
+    if (maxUintMatch) {
+      checks.push({ name: 'typed-data-unlimited-approval', passed: false, severity: 'critical', message: `Unlimited approval value detected: ${maxUintMatch}` });
+    }
+
+    const spenderKey = Object.keys(td.message || {}).find(key => /spender|operator|delegate|approved/i.test(key));
+    if (spenderKey && td.message && td.message[spenderKey]) {
+      const spender = String(td.message[spenderKey]).toLowerCase();
+      if (this.blockedContracts.has(spender)) {
+        checks.push({ name: 'typed-data-blocked-spender', passed: false, severity: 'critical', message: `Blocked spender/operator: ${spender}` });
+      } else if (!this.trustedContracts.has(spender)) {
+        checks.push({ name: 'typed-data-untrusted-spender', passed: false, severity: 'warn', message: `Untrusted spender/operator: ${spender}` });
       }
     }
 
-    const contract = td.domain?.verifyingContract?.toLowerCase();
-    if (contract && this.blockedDomains.has(contract)) {
-      checks.push({ name: 'typed-data-blocked-contract', passed: false, severity: 'critical', message: `Blocked contract: ${contract}` });
+    const contract = String(td.domain?.verifyingContract || '').toLowerCase();
+    if (contract) {
+      if (this.blockedContracts.has(contract)) {
+        checks.push({ name: 'typed-data-blocked-contract', passed: false, severity: 'critical', message: `Blocked contract: ${contract}` });
+      } else if (!this.trustedContracts.has(contract)) {
+        checks.push({ name: 'typed-data-untrusted-contract', passed: false, severity: 'warn', message: `Untrusted verifyingContract: ${contract}` });
+      } else {
+        checks.push({ name: 'typed-data-trusted-contract', passed: true, severity: 'info', message: `Trusted verifyingContract: ${contract}` });
+      }
+
+      const signatures = await this.lookupPermitType(primaryType, td.types);
+      if (signatures.length > 0) {
+        checks.push({ name: 'typed-data-4byte-match', passed: false, severity: 'warn', message: `4byte permit match: ${signatures[0]}` });
+      }
+    }
+
+    const domainName = String(td.domain?.name || '').toLowerCase();
+    if (domainName && this.blockedDomains.has(domainName)) {
+      checks.push({ name: 'typed-data-blocked-domain', passed: false, severity: 'critical', message: `Blocked EIP-712 domain: ${domainName}` });
     }
 
     if (!td.domain?.chainId) {
@@ -133,5 +189,30 @@ export class SignatureGuard {
     }
 
     return checks;
+  }
+
+  private flattenValues(input: unknown): string[] {
+    if (input == null) return [];
+    if (Array.isArray(input)) return input.flatMap(item => this.flattenValues(item));
+    if (typeof input === 'object') return Object.values(input as Record<string, unknown>).flatMap(item => this.flattenValues(item));
+    return [String(input).toLowerCase()];
+  }
+
+  private isUnlimitedValue(value: string): boolean {
+    return value === '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+      || value === '115792089237316195423570985008687907853269984665640564039457584007913129639935';
+  }
+
+  private async lookupPermitType(primaryType: string, types?: MessageContext['typedData']['types']): Promise<string[]> {
+    if (!/permit|approval|allowance/i.test(primaryType)) return [];
+    const selectorHints = ['0xd505accf', '0x8fcbaf0c', '0x2a2d80d1', '0x24856bc3'];
+    for (const selector of selectorHints) {
+      const matches = await this.lookup4Byte(selector);
+      if (matches.length > 0) return matches;
+    }
+    if (types && Object.keys(types).some(key => /permit|allowance|transfer/i.test(key))) {
+      return ['typed permit/allowance structure detected'];
+    }
+    return [];
   }
 }

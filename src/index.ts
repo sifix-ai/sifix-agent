@@ -38,6 +38,8 @@ export interface AgentConfig {
   signatureGuard?: {
     maxMessageBytes?: number;
     blockedDomains?: string[];
+    blockedContracts?: string[];
+    trustedContracts?: string[];
   };
   /**
    * Optional on-chain agent identity metadata (Agentic ID / ERC-7857)
@@ -267,7 +269,7 @@ export class SecurityAgent {
       console.log(`[Agent] Threat intel: none (new signer)`);
     }
 
-    const guardResult = this.signatureGuard.check({
+    const guardResult = await this.signatureGuard.check({
       from: params.from,
       method: params.method,
       message: params.message,
