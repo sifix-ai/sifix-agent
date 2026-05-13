@@ -238,8 +238,13 @@ export class SecurityAgent {
       simulation: {
         success: true,
         gasUsed: BigInt(0),
+        gasEstimate: BigInt(0),
+        gasPrice: BigInt(0),
         balanceChanges: [],
         events: [],
+        stateDiff: [],
+        netEthTransfer: BigInt(0),
+        blockNumber: BigInt(0),
       },
       threatIntel,
       messageContext: {
