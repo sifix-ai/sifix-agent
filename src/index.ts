@@ -1,4 +1,8 @@
 import { TransactionSimulator } from './core/simulator.js';
+import { RuleEngine } from './core/rule-engine.js';
+import type { RuleEngineResult, Rule } from './core/rule-engine.js';
+import { SignatureGuard } from './core/signature-guard.js';
+import type { SignatureGuardResult } from './core/signature-guard.js';
 import { AIAnalyzer } from './ai/analyzer.js';
 import type { MessageContext, RiskAnalysis } from './ai/analyzer.js';
 import { StorageClient } from './storage/client.js';
@@ -30,6 +34,11 @@ export interface AgentConfig {
    * Without this, each scan is analyzed in isolation (no history).
    */
   threatIntel?: ThreatIntelProvider;
+  customRules?: Rule[];
+  signatureGuard?: {
+    maxMessageBytes?: number;
+    blockedDomains?: string[];
+  };
   /**
    * Optional on-chain agent identity metadata (Agentic ID / ERC-7857)
    * embedded into stored scan evidence for provenance.
@@ -53,6 +62,8 @@ export interface AnalysisResult {
   storageRootHash?: string;
   storageExplorer?: string;
   computeProvider?: 'openai' | '0g-compute';
+  ruleResult?: RuleEngineResult;
+  signatureGuard?: SignatureGuardResult;
 }
 
 export class SecurityAgent {
@@ -61,12 +72,16 @@ export class SecurityAgent {
   private storage?: StorageClient;
   private computeClient?: ComputeClient;
   private threatIntelProvider?: ThreatIntelProvider;
+  private ruleEngine: RuleEngine;
+  private signatureGuard: SignatureGuard;
   private config: AgentConfig;
 
   constructor(config: AgentConfig) {
     this.config = config;
     this.threatIntelProvider = config.threatIntel;
     this.simulator = new TransactionSimulator(config.rpcUrl);
+    this.ruleEngine = new RuleEngine(config.customRules);
+    this.signatureGuard = new SignatureGuard(config.signatureGuard);
     
     // Initialize 0G Compute client if configured
     if (config.compute) {
@@ -154,13 +169,34 @@ export class SecurityAgent {
     });
     console.log(`[Agent] Risk score: ${analysis.riskScore}/100 (${analysis.recommendation}) via ${analysis.provider}`);
 
+    // Step 3.5: Rule engine evaluation and score/threat merge
+    const ruleResult = this.ruleEngine.evaluate({
+      from: params.from,
+      to: params.to,
+      value: params.value,
+      data: params.data,
+      simulation,
+      threatIntel,
+    });
+    const finalRisk = Math.max(analysis.riskScore, ruleResult.score);
+    const mergedThreats = [...analysis.threats, ...ruleResult.flags.map(f => f.message)];
+    console.log(
+      `[Agent] Rule merge: ai=${analysis.riskScore}, rules=${ruleResult.score}, final=${finalRisk}, flags=${ruleResult.flags.length}`
+    );
+    const finalAnalysis: RiskAnalysis = {
+      ...analysis,
+      riskScore: finalRisk,
+      threats: mergedThreats,
+    };
+
     const result: AnalysisResult = {
       simulation,
       threatIntel,
-      analysis,
+      analysis: finalAnalysis,
       timestamp: new Date().toISOString(),
       storageRootHash: undefined,
       computeProvider: analysis.provider,
+      ruleResult,
     };
 
     // Step 4: Store analysis on 0G Storage (if configured)
@@ -171,12 +207,12 @@ export class SecurityAgent {
           to: params.to,
           value: params.value?.toString(),
           data: params.data,
-          riskScore: analysis.riskScore,
-          riskLevel: this.getRiskLevel(analysis.riskScore),
-          recommendation: analysis.recommendation,
-          reasoning: analysis.reasoning,
-          threats: analysis.threats,
-          confidence: analysis.confidence,
+          riskScore: finalAnalysis.riskScore,
+          riskLevel: this.getRiskLevel(finalAnalysis.riskScore),
+          recommendation: finalAnalysis.recommendation,
+          reasoning: finalAnalysis.reasoning,
+          threats: finalAnalysis.threats,
+          confidence: finalAnalysis.confidence,
           timestamp: result.timestamp,
           simulationSuccess: simulation.success,
           gasUsed: simulation.gasUsed.toString(),
@@ -231,7 +267,27 @@ export class SecurityAgent {
       console.log(`[Agent] Threat intel: none (new signer)`);
     }
 
-    // AI analysis via messageContext
+    const guardResult = this.signatureGuard.check({
+      from: params.from,
+      method: params.method,
+      message: params.message,
+      typedData: params.typedData,
+    });
+    console.log(`[Agent] Signature guard: score=${guardResult.score}, blocked=${guardResult.blocked}`);
+
+    if (guardResult.blocked) {
+      const blockedAnalysis: RiskAnalysis = {
+        riskScore: 95,
+        recommendation: 'BLOCK',
+        reasoning: 'SignatureGuard critical check failed',
+        threats: guardResult.checks.filter(c => !c.passed).map(c => c.message),
+        confidence: 0.99,
+        provider: 'openai',
+      };
+      return blockedAnalysis;
+    }
+
+     // AI analysis via messageContext
     const analysis = await this.analyzer.analyze({
       from: params.from,
       to: params.from, // For messages, 'to' is same as 'from'
@@ -253,7 +309,17 @@ export class SecurityAgent {
         typedData: params.typedData,
       },
     });
-    console.log(`[Agent] Risk score: ${analysis.riskScore}/100 (${analysis.recommendation}) via ${analysis.provider}`);
+    // Merge AI + signature guard scores
+    const finalRisk = Math.max(analysis.riskScore, guardResult.score);
+    const mergedThreats = [...analysis.threats, ...guardResult.checks.filter(c => !c.passed).map(c => c.message)];
+    console.log(`[Agent] Risk score: ${analysis.riskScore}/100 (AI) + ${guardResult.score}/100 (guard) → ${finalRisk} via ${analysis.provider}`);
+
+    const finalAnalysis: RiskAnalysis = {
+      ...analysis,
+      riskScore: finalRisk,
+      recommendation: finalRisk >= 80 ? 'BLOCK' : analysis.recommendation,
+      threats: mergedThreats,
+    };
 
     // Save scan result to threat intel provider (DB index)
     if (this.threatIntelProvider) {
@@ -261,12 +327,12 @@ export class SecurityAgent {
         await this.threatIntelProvider.saveScanResult({
           from: params.from,
           to: params.from,
-          riskScore: analysis.riskScore,
-          riskLevel: this.getRiskLevel(analysis.riskScore),
-          recommendation: analysis.recommendation,
-          reasoning: analysis.reasoning,
-          threats: analysis.threats,
-          confidence: analysis.confidence,
+          riskScore: finalAnalysis.riskScore,
+          riskLevel: this.getRiskLevel(finalAnalysis.riskScore),
+          recommendation: finalAnalysis.recommendation,
+          reasoning: finalAnalysis.reasoning,
+          threats: finalAnalysis.threats,
+          confidence: finalAnalysis.confidence,
           timestamp: new Date().toISOString(),
         });
         console.log(`[Agent] Message signature scan result saved to threat intel provider`);
@@ -275,7 +341,7 @@ export class SecurityAgent {
       }
     }
 
-    return analysis;
+    return finalAnalysis;
   }
 
   /**
@@ -337,6 +403,10 @@ export class SecurityAgent {
 }
 
 export type { AIConfig, MessageContext, RiskAnalysis } from './ai/analyzer';
+export { RuleEngine } from './core/rule-engine.js';
+export type { RuleEngineResult, Rule, RuleContext, RuleFlag } from './core/rule-engine.js';
+export { SignatureGuard } from './core/signature-guard.js';
+export type { SignatureGuardResult, SignatureCheck } from './core/signature-guard.js';
 export { StorageClient } from './storage/client.js';
 export type { StorageConfig, TransactionAnalysisData } from './storage/client.js';
 export { ComputeClient } from './compute/client.js';
