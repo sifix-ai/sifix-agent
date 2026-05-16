@@ -22,9 +22,12 @@ Built on the **full 0G stack**: [0G Chain](https://0g.ai), [0G Compute](https://
 
 - Added **real transaction simulation hardening** with better gas/state diff coverage and transfer parsing.
 - Added **rule-engine merge pipeline** so deterministic rules can raise final risk beyond AI-only output.
-- Added **signature-guard hardening** for `permit` / typed-data flows, including 4byte lookup cache and contract registry checks.
+- Added **signature-guard hardening** for `permit` / typed-data flows, including 4byte lookup cache and contract allow/block registry hooks.
+- Added **Vitest coverage** for core signature-guard behavior.
 - Standardized on **0G Galileo Testnet (Chain ID 16602)** across SIFIX stack.
+- Improved merge strategy between AI analysis and deterministic rule outputs.
 - Maintains compatibility with dApp safe-report policy and prediction-accuracy tracking pipeline.
+- Packaging hardened with `prepublishOnly` build guard and explicit published files allowlist (`dist`, `README.md`, `LICENSE`, `CHANGELOG.md`).
 
 ## ✨ Features
 
