@@ -438,7 +438,7 @@ src/
 
 ```mermaid
 flowchart TD
-    START([User initiates transaction]) --> AT[analyzeTransaction<br/>{from, to, data?, value?}]
+    START([User initiates transaction]) --> AT[analyzeTransaction<br/>from, to, data?, value?]
 
     AT --> SIM[Simulate Transaction<br/>viem + 0G Galileo]
     SIM --> SR[SimulationResult<br/>success, gasUsed, balanceChanges,<br/>events, revertReason?]
