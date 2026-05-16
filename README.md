@@ -16,7 +16,7 @@
 
 SIFIX Agent is an open-source SDK that provides **real-time AI transaction security analysis** for Web3 wallets and dApps. It simulates transactions on-chain, runs risk analysis via decentralized or centralized AI, stores cryptographic evidence on 0G Storage, and returns actionable recommendations — all before the user signs.
 
-Built on the **full 0G Stack**: [0G Compute](https://zero.network/) for decentralized AI inference and [0G Storage](https://zero.network/) for tamper-proof evidence storage.
+Built on the **full 0G stack**: [0G Chain](https://0g.ai), [0G Compute](https://zero.network/) for decentralized AI inference, [0G Storage](https://zero.network/) for tamper-proof evidence storage, and 0G Agentic ID for on-chain identity.
 
 ## Latest Progress (May 2026)
 
