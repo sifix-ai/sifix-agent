@@ -450,7 +450,7 @@ flowchart TD
     AI --> RA[RiskAnalysis<br/>riskScore, confidence, reasoning,<br/>threats, recommendation, provider]
 
     RA --> STORE[Store on 0G Storage<br/>StorageClient.storeAnalysis]
-    STORE --> HASH[{rootHash, explorerUrl}<br/>Merkle root on-chain]
+    STORE --> HASH[rootHash, explorerUrl<br/>Merkle root on-chain]
 
     HASH --> SAVE[Save to Database<br/>ThreatIntelProvider.saveScanResult]
     SAVE --> RESULT([AnalysisResult<br/>simulation + threatIntel + analysis<br/>+ storageRootHash + computeProvider])
@@ -983,7 +983,7 @@ TOGETHER_API_KEY=...
 
 ```bash
 # Clone the repository
-git clone https://github.com/sifix/sifix-agent.git
+git clone https://github.com/sifix-ai/sifix-agent.git
 cd sifix-agent
 
 # Install dependencies
@@ -1009,7 +1009,7 @@ npm test
 
 <div align="center">
 
-**[🌐 Website](https://zero.network/) · [📖 Docs](https://zero.network/docs) · [💬 Discord](https://discord.gg/zeronetwork) · [🐦 Twitter](https://twitter.com/0glabs)**
+**[🌐 Website](https://sifix.vercel.app/) · [📖 Docs](https://sifix-docs.vercel.app/) · [💬 Discord](https://discord.gg/sifix) · [🐦 Twitter](https://x.com/SIFIXAI)**
 
 Built with ❤️ on the 0G Network
 
